@@ -1,0 +1,41 @@
+name: will-it-blend
+
+on:
+  schedule:
+    - cron:  '* 8 * * *'
+
+jobs:
+  check:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        version: [13]
+        os: ["ubuntu-latest"]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: cargo version
+        run: cargo --version
+
+      # Update apt
+      - name: update apt
+        run: sudo apt-get update -y -qq --fix-missing
+
+      # Just install PG along with likely necessary build tools
+      - name: install postgres build dependencies
+        run: sudo apt-get install -y clang-10 llvm-10 clang gcc make build-essential libz-dev zlib1g-dev strace libssl-dev pkg-config postgresql-${{ matrix.version }} postgresql-server-dev-${{ matrix.version }}
+
+      # install cargo-pgx
+      - name: install cargo-pgx
+        run: cargo install --path cargo-pgx/ --debug
+
+      # initialize pgx to use cargo-pgs
+      - name: cargo pgx init
+        run: cargo pgx init --pg${{ matrix.version }}=`which pg_config`
+
+      # just see if the code checks out okay
+      - name: cargo check
+        run: RUST_BACKTRACE=1 cargo check --all --features "pg${{ matrix.version }}"

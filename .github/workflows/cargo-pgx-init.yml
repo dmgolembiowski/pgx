@@ -1,4 +1,4 @@
-name: cargo test --all
+name: cargo-pgx-init
 
 on:
   push:
@@ -11,14 +11,13 @@ on:
       - develop
 
 jobs:
-  test:
+  cargo-pgx-init:
 
     runs-on: ${{ matrix.os }}
     if: "!contains(github.event.head_commit.message, 'nogha')"
 
     strategy:
       matrix:
-        version: [10, 11, 12, 13]
         os: ["ubuntu-latest"]
 
     steps:
@@ -37,18 +36,27 @@ jobs:
 
     # Install Postgres
     - name: install postgres
-      run: sudo apt-get install -y clang-10 llvm-10 clang gcc make build-essential libz-dev zlib1g-dev strace libssl-dev pkg-config postgresql-${{ matrix.version }} postgresql-server-dev-${{ matrix.version }}
-    - name: hack Postgres permissions
-      run: sudo chmod a+rwx `pg_config --pkglibdir` `pg_config --sharedir`/extension /var/run/postgresql/
+      run: sudo apt-get install -y clang-10 llvm-10 clang gcc make build-essential libz-dev zlib1g-dev strace libssl-dev pkg-config
 
     # install cargo-pgx
     - name: install cargo-pgx
       run: cargo install --path cargo-pgx/ --debug
 
-    # initialize pgx
+    # initialize pgx with all PG versions it supports
     - name: cargo pgx init
-      run: cargo pgx init --pg${{ matrix.version }}=`which pg_config`
+      run: cargo pgx init
 
-    # test our code
-    - name: cargo test
-      run: RUST_BACKTRACE=1 cargo test --all --features "pg${{ matrix.version }} pg_test" --no-default-features
+    # create new sample extension
+    - name: create new sample extension
+      run: cd /tmp/ && cargo pgx new sample
+
+    # test that sample extension on all 4 Postgres'
+    - name: test sample on pg10
+      run: cd /tmp/sample && cargo pgx test pg10
+    - name: test sample on pg11
+      run: cd /tmp/sample && cargo pgx test pg11
+    - name: test sample on pg12
+      run: cd /tmp/sample && cargo pgx test pg12
+    - name: test sample on pg13
+      run: cd /tmp/sample && cargo pgx test pg13
+

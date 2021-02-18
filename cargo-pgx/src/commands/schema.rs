@@ -10,15 +10,13 @@ use pgx_utils::{
 use proc_macro2::{Ident, Span, TokenTree};
 use quote::quote;
 use std::borrow::BorrowMut;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::DirEntry;
 use std::io::{BufRead, Write};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::result::Result;
 use std::str::FromStr;
-use syn::export::ToTokens;
-use syn::export::TokenStream2;
 use syn::spanned::Spanned;
 use syn::{Attribute, FnArg, Item, ItemFn, Pat, ReturnType, Type};
 
@@ -36,12 +34,12 @@ enum OperatorOptions {
 #[derive(Debug)]
 enum CategorizedAttribute {
     PgGuard(Span),
-    PgTest(Span, HashSet<ExternArgs>, Vec<FunctionArgs>),
+    PgTest(Span, BTreeSet<ExternArgs>, Vec<FunctionArgs>),
     RustTest(Span),
-    PgExtern(Span, HashSet<ExternArgs>, Vec<FunctionArgs>),
+    PgExtern(Span, BTreeSet<ExternArgs>, Vec<FunctionArgs>),
     PgOperator(
         Span,
-        HashSet<ExternArgs>,
+        BTreeSet<ExternArgs>,
         Vec<FunctionArgs>,
         Vec<OperatorOptions>,
     ),
@@ -235,8 +233,10 @@ fn delete_generated_sql() {
     }
 }
 
-fn parse_extern_args(att: &Attribute) -> HashSet<ExternArgs> {
+fn parse_extern_args(att: &Attribute) -> BTreeSet<ExternArgs> {
     pgx_utils::parse_extern_attributes(att.tokens.clone())
+        .into_iter()
+        .collect()
 }
 
 fn generate_sql(rs_file: &DirEntry, default_schema: String) -> Vec<String> {
@@ -285,7 +285,7 @@ fn walk_items(
             let mut derives = HashSet::<DeriveMacros>::new();
 
             for a in &strct.attrs {
-                let string = a.to_token_stream().to_string();
+                let string = quote! {#a}.to_string();
 
                 if string.contains("PostgresType") {
                     derives.insert(DeriveMacros::PostgresType);
@@ -419,7 +419,7 @@ fn walk_items(
         } else if let Item::Enum(enm) = item {
             let mut found_postgres_enum = false;
             for a in enm.attrs {
-                let string = a.to_token_stream().to_string();
+                let string = quote! {#a}.to_string();
 
                 if string.contains("PostgresEnum") {
                     found_postgres_enum = true;
@@ -446,7 +446,7 @@ fn walk_items(
             }
         } else if let Item::Macro(makro) = item {
             let name = match makro.mac.path.get_ident() {
-                Some(ident) => ident.to_token_stream().to_string(),
+                Some(ident) => ident.to_string(),
                 None => "".to_string(),
             };
 
@@ -645,7 +645,7 @@ fn qualify_name(schema: &str, name: &str) -> String {
 
 fn make_create_function_statement(
     func: &ItemFn,
-    mut extern_args: Option<HashSet<ExternArgs>>,
+    mut extern_args: Option<BTreeSet<ExternArgs>>,
     rs_file: &DirEntry,
     sql_func_arg: Option<String>,
     schema: &str,
@@ -808,7 +808,7 @@ fn func_args_have_option(func: &ItemFn, rs_file: &DirEntry) -> bool {
 }
 
 fn quote_ident(ident: &Ident) -> String {
-    quote_ident_string(ident.to_token_stream().to_string())
+    quote_ident_string(ident.to_string())
 }
 
 fn quote_ident_string(ident: String) -> String {
@@ -1252,7 +1252,7 @@ fn collect_attributes(
     while i < attrs.len() {
         let a = attrs.get(i).unwrap();
         let span = a.span();
-        let as_string = a.to_token_stream().to_string();
+        let as_string = quote! {#a}.to_string();
         if as_string == "# [pg_guard]" {
             categorized_attributes.push(CategorizedAttribute::PgGuard(span));
         } else if as_string.starts_with("# [pg_extern") {
@@ -1413,7 +1413,7 @@ fn collect_attributes(
     categorized_attributes
 }
 
-fn extract_single_arg(attr: TokenStream2) -> String {
+fn extract_single_arg(attr: proc_macro2::TokenStream) -> String {
     let mut itr = attr.into_iter();
     let mut arg = String::new();
     while let Some(t) = itr.next() {
@@ -1448,7 +1448,7 @@ fn collect_doc(
     i += 1;
     while i < attrs.len() {
         let a = attrs.get(i).unwrap();
-        let as_string = a.to_token_stream().to_string();
+        let as_string = quote! {#a}.to_string();
 
         if as_string == "# [doc = \" ```\"]" {
             // we found the end to this ```sql block of documentation

@@ -11,8 +11,8 @@ on:
       - develop
 
 jobs:
-  test:
-
+  examples:
+    name: ${{ matrix.examples }} example for pg${{ matrix.version }}
     runs-on: ${{ matrix.os }}
     if: "!contains(github.event.head_commit.message, 'nogha')"
 
@@ -20,81 +20,42 @@ jobs:
       matrix:
         version: [10, 11, 12, 13]
         os: ["ubuntu-latest"]
+        examples: ["arrays", "bad_ideas", "bgworker", "bytea", "custom_types", "errors", "operators", "schemas", "shmem", "spi", "srf", "strings"]
 
     steps:
     - uses: actions/checkout@v2
 
-    - name: cache cargo artifacts
-      id: cargo-artifacts-cache
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          ~/.cargo/cargo-pgx
-          target
-        key: examples-${{ matrix.os }}-${{ matrix.version }}-cargo-${{ hashFiles('~/work/pgx/pgx/**/Cargo.toml') }}
-
-    - name: cache cargo pgx init
-      id: cargo-pgx-init-cache
-      uses: actions/cache@v2
-      with:
-        path: ~/.pgx/
-        key: examples-${{ matrix.os }}-${{ matrix.version }}-pgx-init-${{ hashFiles('~/work/pgx/pgx/**/*.h') }}
-
     - name: cargo version
       run: cargo --version
 
-    # Ubuntu system dependencies required to build Postgres from sources
-    - name: install postgres build dependencies
-      if: steps.cargo-pgx-init-cache.outputs.cache-hit != 'true'
-      run: sudo apt install -y bison flex zlib1g zlib1g-dev pkg-config libssl-dev libreadline-dev
+    # Ubuntu system dependencies for Postgres
+    - name: remove old postgres
+      run: sudo apt remove -y postgres*
+
+    # Update apt
+    - name: update apt
+      run: sudo apt-get update -y -qq --fix-missing
+
+    # Install Postgres
+    - name: install postgres
+      run: sudo apt-get install -y clang-10 llvm-10 clang gcc make build-essential libz-dev zlib1g-dev strace libssl-dev pkg-config postgresql-${{ matrix.version }} postgresql-server-dev-${{ matrix.version }}
+    - name: hack Postgres permissions
+      run: sudo chmod a+rwx `pg_config --pkglibdir` `pg_config --sharedir`/extension /var/run/postgresql/
 
     # install cargo-pgx
     - name: install cargo-pgx
       run: cargo install --path cargo-pgx/ --debug
 
-    # initialize pgx
+    # initialize pgx for this PG version
     - name: cargo pgx init
-      if: steps.cargo-pgx-init-cache.outputs.cache-hit != 'true'
-      run: cargo pgx init
+      run: cargo pgx init --pg${{ matrix.version }}=`which pg_config`
 
-    # make sure the examples build too
-    - name: create new sample extension
-      run: cd /tmp/ && cargo pgx new sample
+    - name: config.toml
+      run: cat ~/.pgx/config.toml
 
-    - name: arrays example
-      run: cd pgx-examples/arrays && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
+    - name: pg_config version
+      run: pg_config --version
 
-    - name: bad_ideas example
-      run: cd pgx-examples/bad_ideas && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: bgworker example
-      run: cd pgx-examples/bgworker && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: bytea example
-      run: cd pgx-examples/bytea && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: custom_types example
-      run: cd pgx-examples/custom_types && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: errors example
-      run: cd pgx-examples/errors && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: operators example
-      run: cd pgx-examples/operators && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: schemas example
-      run: cd pgx-examples/schemas && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: shmem example
-      run: cd pgx-examples/shmem && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: spi example
-      run: cd pgx-examples/spi && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: srf example
-      run: cd pgx-examples/srf && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
-
-    - name: strings example
-      run: cd pgx-examples/strings && CARGO_TARGET_DIR=~/.cargo/cargo-pgx cargo pgx test pg${{ matrix.version }}
+    # make sure the examples build too and build them in the matrix
+    - name: ${{ matrix.examples }} example on pg${{ matrix.version }}
+      run: cd pgx-examples/${{ matrix.examples }} && cargo pgx test pg${{ matrix.version }}
